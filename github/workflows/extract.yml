@@ -1,0 +1,29 @@
+name: Extract Vendor Boot
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'Direct Link for HyperOS Fastboot ROM (.tgz)'
+        required: true
+
+jobs:
+  extract_job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download and Extract
+        run: |
+          # تحميل الروم
+          curl -L "${{ github.event.inputs.rom_url }}" -o rom.tgz
+          
+          # استخراج ملف vendor_boot فقط (أحياناً يكون داخل مجلد images)
+          tar -xvf rom.tgz --wildcards '*/vendor_boot.img' --strip-components 2 || tar -xvf rom.tgz --wildcards 'vendor_boot.img'
+          
+      - name: Upload Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor_boot_image
+          path: vendor_boot.img
