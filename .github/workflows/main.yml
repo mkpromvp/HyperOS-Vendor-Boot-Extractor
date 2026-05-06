@@ -1,4 +1,4 @@
-name: Extract Vendor Boot
+name: Extract Boot or Vendor Boot
 
 on:
   workflow_dispatch:
@@ -6,6 +6,13 @@ on:
       rom_url:
         description: 'Direct Link for HyperOS Fastboot ROM (.tgz)'
         required: true
+      file_to_extract:
+        description: 'اختر الملف الذي تريد استخراجه'
+        required: true
+        type: choice
+        options:
+          - vendor_boot
+          - boot
 
 jobs:
   extract_job:
@@ -16,20 +23,29 @@ jobs:
 
       - name: Download and Extract
         run: |
-          # تحميل الروم برابط مباشر
+          # تحديد اسم الملف المطلوب بناءً على اختيارك
+          TARGET_FILE="${{ github.event.inputs.file_to_extract }}.img"
+          echo "Target file is: $TARGET_FILE"
+
+          # تحميل الروم
+          echo "Downloading ROM..."
           curl -L "${{ github.event.inputs.rom_url }}" -o rom.tgz
           
-          # استخراج ملف vendor_boot.img أياً كان مكانه داخل الأرشيف
-          # البحث عن المسار ثم استخراجه بدون المسارات الطويلة
-          FILE_PATH=$(tar -tf rom.tgz | grep 'vendor_boot.img' | head -n 1)
+          # البحث عن مسار الملف المختار داخل الأرشيف
+          FILE_PATH=$(tar -tf rom.tgz | grep "$TARGET_FILE" | head -n 1)
+          
           if [ -z "$FILE_PATH" ]; then
-            echo "Error: vendor_boot.img not found in the archive!"
+            echo "Error: $TARGET_FILE not found in the archive!"
             exit 1
           fi
+          
+          echo "Found file at: $FILE_PATH"
+          
+          # استخراج الملف وتجريده من المجلدات الطويلة ليكون في المجلد الرئيسي
           tar -xvf rom.tgz "$FILE_PATH" --strip-components=$(echo $FILE_PATH | tr -cd '/' | wc -c)
           
       - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
-          name: vendor_boot_image
-          path: vendor_boot.img
+          name: ${{ github.event.inputs.file_to_extract }}_image
+          path: "*.img"
