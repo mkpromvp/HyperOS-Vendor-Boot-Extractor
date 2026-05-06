@@ -1,10 +1,10 @@
-name: Extract Boot or Vendor Boot
+name: Extract Partition Images
 
 on:
   workflow_dispatch:
     inputs:
       rom_url:
-        description: 'Direct Link for HyperOS Fastboot ROM (.tgz)'
+        description: 'رابط مباشر لروم HyperOS Fastboot (.tgz)'
         required: true
       file_to_extract:
         description: 'اختر الملف الذي تريد استخراجه'
@@ -13,6 +13,7 @@ on:
         options:
           - vendor_boot
           - boot
+          - recovery
 
 jobs:
   extract_job:
@@ -23,25 +24,25 @@ jobs:
 
       - name: Download and Extract
         run: |
-          # تحديد اسم الملف المطلوب بناءً على اختيارك
+          # تحديد اسم الملف المطلوب
           TARGET_FILE="${{ github.event.inputs.file_to_extract }}.img"
-          echo "Target file is: $TARGET_FILE"
+          echo "Target file: $TARGET_FILE"
 
-          # تحميل الروم
+          # تحميل الروم باستخدام curl مع دعم الروابط التي يعاد توجيهها
           echo "Downloading ROM..."
           curl -L "${{ github.event.inputs.rom_url }}" -o rom.tgz
           
-          # البحث عن مسار الملف المختار داخل الأرشيف
-          FILE_PATH=$(tar -tf rom.tgz | grep "$TARGET_FILE" | head -n 1)
+          # البحث عن المسار الفعلي للملف داخل الأرشيف (يتجنب مشاكل اختلاف المجلدات)
+          FILE_PATH=$(tar -tf rom.tgz | grep -E "/${TARGET_FILE}$|^${TARGET_FILE}$" | head -n 1)
           
           if [ -z "$FILE_PATH" ]; then
-            echo "Error: $TARGET_FILE not found in the archive!"
+            echo "خطأ: الملف $TARGET_FILE غير موجود في هذه الروم!"
             exit 1
           fi
           
-          echo "Found file at: $FILE_PATH"
+          echo "تم العثور على الملف في: $FILE_PATH"
           
-          # استخراج الملف وتجريده من المجلدات الطويلة ليكون في المجلد الرئيسي
+          # استخراج الملف وتجريده من مسار المجلدات
           tar -xvf rom.tgz "$FILE_PATH" --strip-components=$(echo $FILE_PATH | tr -cd '/' | wc -c)
           
       - name: Upload Result
