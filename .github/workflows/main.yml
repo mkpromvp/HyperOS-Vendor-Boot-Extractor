@@ -1,4 +1,4 @@
-name: Extract Partition Images
+name: Extract and Upload to GoFile
 
 on:
   workflow_dispatch:
@@ -16,36 +16,81 @@ on:
           - recovery
 
 jobs:
-  extract_job:
+  extract_and_upload:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Install Dependencies
+        run: sudo apt-get install -y jq curl
+
       - name: Download and Extract
         run: |
-          # تحديد اسم الملف المطلوب
           TARGET_FILE="${{ github.event.inputs.file_to_extract }}.img"
           echo "Target file: $TARGET_FILE"
 
-          # تحميل الروم باستخدام curl مع دعم الروابط التي يعاد توجيهها
           echo "Downloading ROM..."
           curl -L "${{ github.event.inputs.rom_url }}" -o rom.tgz
           
-          # البحث عن المسار الفعلي للملف داخل الأرشيف (يتجنب مشاكل اختلاف المجلدات)
           FILE_PATH=$(tar -tf rom.tgz | grep -E "/${TARGET_FILE}$|^${TARGET_FILE}$" | head -n 1)
           
           if [ -z "$FILE_PATH" ]; then
-            echo "خطأ: الملف $TARGET_FILE غير موجود في هذه الروم!"
+            echo "❌ Error: $TARGET_FILE not found!"
             exit 1
           fi
           
-          echo "تم العثور على الملف في: $FILE_PATH"
-          
-          # استخراج الملف وتجريده من مسار المجلدات
           tar -xvf rom.tgz "$FILE_PATH" --strip-components=$(echo $FILE_PATH | tr -cd '/' | wc -c)
+          echo "EXTRACTED_FILE=$TARGET_FILE" >> $GITHUB_ENV
+
+      - name: Upload to GoFile
+        run: |
+          # ==============================================================================
+          # Copyright (c) 2026 Xiatsuma. All Rights Reserved.
+          # ==============================================================================
+          set -e
+          FILE="${{ env.EXTRACTED_FILE }}"
           
-      - name: Upload Result
+          if [ ! -f "$FILE" ]; then
+            echo "❌ File not found: $FILE"
+            exit 1
+          fi
+
+          echo "📤 Uploading $FILE to GoFile..."
+
+          # 1. Get API token
+          TOKEN_RESPONSE=$(curl -s -X POST https://api.gofile.io/accounts)
+          TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.data.token' 2>/dev/null)
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "❌ Failed to get GoFile token"
+            exit 1
+          fi
+
+          # 2. Get optimal server
+          SERVER=$(curl -s "https://api.gofile.io/servers?token=$TOKEN" | jq -r '.data.servers[0].name' 2>/dev/null)
+          [ -z "$SERVER" ] && SERVER="store1"
+
+          # 3. Upload
+          RESPONSE=$(curl -s -X POST \
+            -F "file=@$FILE" \
+            -F "token=$TOKEN" \
+            "https://${SERVER}.gofile.io/uploadFile")
+
+          # 4. Parse & output
+          if echo "$RESPONSE" | grep -q '"status":"ok"'; then
+            DOWNLOAD_URL=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
+            echo "✅ Upload successful!"
+            echo "🔗 Link: $DOWNLOAD_URL"
+            
+            # حفظ الرابط في ملف لمشاهدته في سجلات GitHub
+            echo "Download URL: $DOWNLOAD_URL" > gofile_link.txt
+          else
+            echo "❌ Upload failed"
+            exit 1
+          fi
+
+      - name: Upload Artifact (Backup)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.inputs.file_to_extract }}_image
